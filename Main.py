@@ -18,7 +18,7 @@ app.add_middleware(
 )
 
 #  Load the trained model once at startup
-MODEL_PATH = r"C:\Users\lesli\Documents\best_eye_model.keras"
+MODEL_PATH = r"C:\Users\lesli\Desktop\Final_Year_Project\DataSet\NData2_Balanced\classification_model.keras"
 try:
     model = load_model(MODEL_PATH)
     print(" Model loaded successfully.")

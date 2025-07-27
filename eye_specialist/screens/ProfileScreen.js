@@ -1,214 +1,177 @@
-import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Alert, Image } from 'react-native';
 import React, { useEffect, useState } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, Alert, Image, ScrollView, Switch, ActivityIndicator,
+} from 'react-native';
 import { auth, db } from '../configs/firebaseConfig';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { MaterialIcons, Feather, Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { MaterialIcons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const ProfileScreen = ({ navigation }) => {
+export default function ProfileScreen({ navigation }) {
   const [userData, setUserData] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [userStats, setUserStats] = useState({ totalScans: 0, daysActive: 0, healthScore: 100 });
 
   useEffect(() => {
-    const fetchUserData = async () => {
+    const fetchUser = async () => {
       try {
         const user = auth.currentUser;
-        if (!user) {
-          navigation.navigate('Login');
-          return;
-        }
+        if (!user) return navigation.navigate('Login');
 
-        const docRef = doc(db, 'users', user.uid);
-        const docSnap = await getDoc(docRef);
+        const docSnap = await getDoc(doc(db, 'users', user.uid));
+        if (docSnap.exists()) setUserData(docSnap.data());
 
-        if (docSnap.exists()) {
-          setUserData(docSnap.data());
-        } else {
-          Alert.alert('Error', 'User profile not found');
-        }
-      } catch (error) {
-        Alert.alert('Error', error.message);
+        // Fetch history stats
+        const historySnap = await db.collection('history')
+          .where('userId', '==', user.uid)
+          .orderBy('createdAt', 'desc')
+          .get();
+
+        const scans = historySnap.docs.map(doc => doc.data());
+        const total = scans.length;
+        const firstScan = scans.at(-1)?.createdAt?.toDate() || new Date();
+        const days = Math.floor((Date.now() - firstScan.getTime()) / (1000 * 60 * 60 * 24));
+        const health = Math.round((scans.filter(s => s.prediction === 'normal').length / (total || 1)) * 100);
+
+        setUserStats({ totalScans: total, daysActive: days, healthScore: health });
+      } catch (err) {
+        Alert.alert('Error', err.message);
       } finally {
         setLoading(false);
       }
     };
-
-    fetchUserData();
+    fetchUser();
   }, []);
 
   const pickImage = async () => {
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permission required', 'Please allow access to your photos');
-        return;
-      }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return Alert.alert('Permission required', 'Photo access needed');
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.5,
-        base64: true,
-      });
-
-      if (!result.canceled && result.assets) {
-        await uploadImage(result.assets[0]);
-      }
-    } catch (error) {
-      Alert.alert('Error', error.message);
-    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true, aspect: [1, 1], quality: 0.5,
+    });
+    if (!result.canceled && result.assets) uploadImage(result.assets[0]);
   };
 
   const uploadImage = async (imageAsset) => {
     try {
       setUploading(true);
-      const user = auth.currentUser;
-      
-      // Convert image to Base64
-      const base64Data = await FileSystem.readAsStringAsync(imageAsset.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      const imageData = `data:image/jpeg;base64,${base64Data}`;
-
-      // Update Firestore document
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-        photoURL: imageData
-      });
-
-       // Update local state
-       setUserData(prev => ({ ...prev, photoURL: imageData }));
-       Alert.alert('Success', 'Profile image updated!');
-     } catch (error) {
-       Alert.alert('Upload Error', error.message);
-     } finally {
-       setUploading(false);
-     }
-   };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }],
-      });
-    } catch (error) {
-      Alert.alert('Logout Failed', error.message);
+      const base64 = await FileSystem.readAsStringAsync(imageAsset.uri, { encoding: 'base64' });
+      const imageData = `data:image/jpeg;base64,${base64}`;
+      const userRef = doc(db, 'users', auth.currentUser.uid);
+      await updateDoc(userRef, { photoURL: imageData });
+      setUserData(prev => ({ ...prev, photoURL: imageData }));
+      Alert.alert('Success', 'Profile picture updated');
+    } catch (e) {
+      Alert.alert('Error uploading image', e.message);
+    } finally {
+      setUploading(false);
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" />
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    } catch (e) {
+      Alert.alert('Logout Failed', e.message);
+    }
+  };
+
+  const renderRow = (icon, label, onPress) => (
+    <TouchableOpacity style={styles.row} onPress={onPress}>
+      <View style={styles.rowLeft}>
+        {icon}
+        <Text style={styles.rowText}>{label}</Text>
       </View>
-    );
-  }
+      <Ionicons name="chevron-forward" size={20} color="#ccc" />
+    </TouchableOpacity>
+  );
+
+  if (loading) return <View style={styles.center}><ActivityIndicator size="large" /></View>;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.profileHeader}>
-        <Image source={require('../assets/avatar.png')} style={styles.avatar}/>
-        <Text style={styles.name}>{userData?.name || 'Anonymous User'}</Text>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={pickImage}>
+          {uploading ? (
+            <ActivityIndicator size="large"/>
+          ) : userData?.photoURL ? (
+            <Image source={{ uri: userData.photoURL }} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Ionicons name="person" size={50} color="#fff" />
+            </View>
+          )}
+        </TouchableOpacity>
+        <Text style={styles.name}>{userData?.name || 'User'}</Text>
         <Text style={styles.email}>{auth.currentUser?.email}</Text>
       </View>
 
-      <View style={styles.detailsContainer}>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Account Created</Text>
-          <Text style={styles.detailValue}>
-            {new Date(auth.currentUser?.metadata.creationTime).toLocaleDateString()}
-          </Text>
-        </View>
-
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Last Login</Text>
-          <Text style={styles.detailValue}>
-            {new Date(auth.currentUser?.metadata.lastSignInTime).toLocaleDateString()}
-          </Text>
-        </View>
+      <View style={styles.statsBox}>
+        <Stat title="Total Scans" value={userStats.totalScans} />
+        <Stat title="Days Active" value={userStats.daysActive} />
+        <Stat title="Health Score" value={`${userStats.healthScore}%`} />
       </View>
 
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Log Out</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
+      <Text style={styles.sectionTitle}>Account Settings</Text>
+      {renderRow(<Feather name="user" size={20} color="#555" />, 'Personal Info', () => navigation.navigate('PersonalInfo'))}
+      {renderRow(<Feather name="lock" size={20} color="#555" />, 'Change Password', () => navigation.navigate('ChangePass'))}
+      {renderRow(<Feather name="bell" size={20} color="#555" />, 'Notifications', () => navigation.navigate('Notification'))}
 
-export default ProfileScreen;
+      <Text style={styles.sectionTitle}>App Preferences</Text>
+      <View style={styles.row}>
+        <View style={styles.rowLeft}>
+          <Feather name={darkMode ? 'moon' : 'sun'} size={20} color="#555" />
+          <Text style={styles.rowText}>Dark Mode</Text>
+        </View>
+        <Switch value={darkMode} onValueChange={setDarkMode} />
+      </View>
+
+      <Text style={styles.sectionTitle}>Support & Legal</Text>
+      {renderRow(<Feather name="help-circle" size={20} color="#555" />, 'Help & Support', () => navigation.navigate('HelpCenter'))}
+      {renderRow(<Feather name="shield" size={20} color="#555" />, 'Privacy Policy', () => navigation.navigate('PrivacyPolicy'))}
+      {renderRow(<Feather name="file-text" size={20} color="#555" />, 'Terms of Service', () => navigation.navigate('TermsofService'))}
+
+      <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+        <Feather name="log-out" size={20} color="#fff" />
+        <Text style={styles.signOutText}>Sign Out</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.version}>Eye Specialist v1.0.0</Text>
+    </ScrollView>
+  );
+}
+
+const Stat = ({ title, value }) => (
+  <View style={styles.stat}>
+    <Text style={styles.statValue}>{value}</Text>
+    <Text style={styles.statLabel}>{title}</Text>
+  </View>
+);
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-    padding: 20,
-  },
-  profileHeader: {
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    marginBottom: 15,
-  },
-  avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    marginTop: 30,
-    marginBottom: 20,
-  },
-  name: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#1a73e8',
-    marginBottom: 5,
-  },
-  email: {
-    fontSize: 16,
-    color: '#6c757d',
-  },
-  detailsContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    elevation: 2,
-  },
-  detailItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  detailLabel: {
-    fontSize: 16,
-    color: '#333',
-  },
-  detailValue: {
-    fontSize: 16,
-    color: '#666',
-    fontWeight: '500',
-  },
-  logoutButton: {
-    backgroundColor: '#dc3545',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 30,
-  },
-  logoutText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  container: { flex: 1, padding: 20, backgroundColor: '#f8f9fa' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { alignItems: 'center', marginBottom: 20 },
+  avatar: { width: 100, height: 100, borderRadius: 50 },
+  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#1a73e8', alignItems: 'center', justifyContent: 'center' },
+  name: { fontSize: 20, fontWeight: '600', marginTop: 10 },
+  email: { fontSize: 14, color: '#555' },
+  statsBox: { flexDirection: 'row', justifyContent: 'space-between', marginVertical: 20 },
+  stat: { alignItems: 'center', flex: 1 },
+  statValue: { fontSize: 18, fontWeight: 'bold', color: '#1a73e8' },
+  statLabel: { fontSize: 12, color: '#777' },
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', marginVertical: 10, color: '#1a1a1a' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomColor: '#eee', borderBottomWidth: 1 },
+  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rowText: { fontSize: 14, color: '#333' },
+  signOutButton: { backgroundColor: '#e53935', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, borderRadius: 8, marginTop: 30 },
+  signOutText: { color: '#fff', marginLeft: 10, fontWeight: 'bold' },
+  version: { textAlign: 'center', color: '#aaa', fontSize: 12, marginTop: 20 },
 });

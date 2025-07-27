@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import {
+  View, Text, FlatList, StyleSheet, ActivityIndicator, Image
+} from 'react-native';
 import { auth, db } from '../configs/firebaseConfig';
+import { Feather } from '@expo/vector-icons';
 
 export default function HistoryScreen() {
   const [history, setHistory] = useState([]);
@@ -17,7 +20,7 @@ export default function HistoryScreen() {
         const items = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
-          createdAt: doc.data().createdAt?.toDate().toLocaleString()
+          createdAt: doc.data().createdAt?.toDate().toLocaleString(),
         }));
         setHistory(items);
         setLoading(false);
@@ -29,15 +32,37 @@ export default function HistoryScreen() {
     return unsubscribe;
   }, []);
 
+  const getColor = (prediction) => {
+    if (prediction === 'normal') return '#34a853';
+    if (prediction === 'cataract') return '#fbbc04';
+    if (prediction === 'glaucoma') return '#ea4335';
+    return '#9ca3af';
+  };
+
   const renderItem = ({ item }) => (
-    <View style={styles.item}>
-      <Text style={styles.date}>{item.createdAt}</Text>
-      <Text>Prediction: {item.prediction}</Text>
-      <Text>Confidence: {(item.confidence * 100).toFixed(2)}%</Text>
-      {item.imageUri && (
-        <Image 
-          source={{ uri: item.imageUri }} 
-          style={styles.thumbnail} 
+    <View style={styles.card}>
+      <View style={styles.header}>
+        <View style={[styles.iconCircle, { backgroundColor: getColor(item.prediction) }]}>
+          <Feather
+            name={item.prediction === 'normal' ? 'check-circle' : 'alert-triangle'}
+            size={20}
+            color="#fff"
+          />
+        </View>
+        <View style={styles.headerText}>
+          <Text style={styles.predictionText}>
+            {item.prediction === 'normal' ? 'Normal Eye' : `${item.prediction} Detected`}
+          </Text>
+          <Text style={styles.date}>{item.createdAt}</Text>
+        </View>
+        <Text style={[styles.confidence, { color: getColor(item.prediction) }]}>
+          {Math.round(item.confidence * 100)}%
+        </Text>
+      </View>
+      {item.imageUrl && (
+        <Image
+          source={{ uri: item.imageUrl }}
+          style={styles.image}
           resizeMode="cover"
         />
       )}
@@ -47,14 +72,17 @@ export default function HistoryScreen() {
   return (
     <View style={styles.container}>
       {loading ? (
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color="#1a73e8" />
       ) : (
         <FlatList
           data={history}
           renderItem={renderItem}
           keyExtractor={item => item.id}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No history found</Text>
+            <View style={styles.emptyContainer}>
+              <Feather name="eye-off" size={40} color="#999" />
+              <Text style={styles.emptyText}>No scan history found</Text>
+            </View>
           }
         />
       )}
@@ -63,31 +91,64 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    padding: 20 
+  container: {
+    flex: 1,
+    backgroundColor: '#f1f5f9',
+    padding: 16,
   },
-  item: {
+  card: {
     backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-    elevation: 2
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  iconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  headerText: {
+    flex: 1,
+  },
+  predictionText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#111827',
   },
   date: {
-    color: '#666',
     fontSize: 12,
-    marginBottom: 5
+    color: '#6b7280',
   },
-  thumbnail: {
-    width: 100,
-    height: 100,
-    marginTop: 10,
-    borderRadius: 4
+  confidence: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  image: {
+    width: '100%',
+    height: 180,
+    marginTop: 8,
+    borderRadius: 12,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    marginTop: 80,
   },
   emptyText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#999',
     textAlign: 'center',
-    color: '#888',
-    marginTop: 20
-  }
+  },
 });

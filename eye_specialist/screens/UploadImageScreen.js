@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { View, Image, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Linking } from 'react-native';
+import {
+  View, Image, Text, StyleSheet,
+  TouchableOpacity, ActivityIndicator, Alert, Linking
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '../configs/firebaseConfig';
 import firebase from 'firebase/compat/app';
+import { Feather } from '@expo/vector-icons';
 
 const API_URL = __DEV__
-  ? 'http://10.40.32.118:8000/predict'
-  : 'https://10.40.32.118:8000/predict';
+  ? 'http://192.168.32.239:8000/predict'
+  : 'https://192.168.32.239:8000/predict';
 
 export default function UploadImageScreen({ navigation, route }) {
   const [imageUri, setImageUri] = useState(route.params?.capturedImage || null);
@@ -16,9 +20,7 @@ export default function UploadImageScreen({ navigation, route }) {
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener(state => {
-      setIsOnline(state.isConnected);
-    });
+    const unsubscribe = NetInfo.addEventListener(state => setIsOnline(state.isConnected));
     return () => unsubscribe();
   }, []);
 
@@ -57,18 +59,10 @@ export default function UploadImageScreen({ navigation, route }) {
   };
 
   const handlePrediction = async () => {
-    if (!imageUri) {
-      Alert.alert('Select an image first.');
-      return;
-    }
-
-    if (!isOnline) {
-      Alert.alert('Offline', 'You must be connected to the internet.');
-      return;
-    }
-
+    if (!imageUri) return Alert.alert('Select an image first.');
+    if (!isOnline) return Alert.alert('Offline', 'You must be connected to the internet.');
+    
     setLoading(true);
-
     const formData = new FormData();
     formData.append('file', {
       uri: imageUri,
@@ -85,7 +79,6 @@ export default function UploadImageScreen({ navigation, route }) {
 
       const text = await res.text();
       const json = JSON.parse(text);
-
       if (!json.prediction || json.confidence === undefined) {
         throw new Error('Invalid response from server.');
       }
@@ -104,7 +97,6 @@ export default function UploadImageScreen({ navigation, route }) {
 
   const saveHistory = async (data) => {
     const user = auth.currentUser;
-
     const entry = {
       userId: user?.uid || 'guest',
       imageUri,
@@ -114,14 +106,11 @@ export default function UploadImageScreen({ navigation, route }) {
       type: 'image_analysis',
     };
 
-    if (!user) {
-      await cacheOffline(entry);
-      return;
-    }
+    if (!user) return await cacheOffline(entry);
 
     try {
       await db.collection('history').add(entry);
-    } catch (err) {
+    } catch {
       await cacheOffline(entry);
     }
   };
@@ -139,104 +128,113 @@ export default function UploadImageScreen({ navigation, route }) {
 
   return (
     <View style={styles.container}>
+      {/* Image Placeholder */}
       <TouchableOpacity
-        style={styles.imageBox}
+        style={styles.imageContainer}
         onPress={() => handleImagePick(false)}
         disabled={loading}
       >
         {imageUri ? (
           <Image source={{ uri: imageUri }} style={styles.image} />
         ) : (
-          <Text style={styles.placeholderText}>Tap to select image</Text>
+          <Feather name="image" size={40} color="#999" />
         )}
+        <Text style={styles.placeholderText}>
+          {imageUri ? 'Tap to change image' : 'Tap to select image'}
+        </Text>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.button}
-        onPress={() => handleImagePick(true)}
-        disabled={loading}
-      >
-        <Text style={styles.buttonText}>Take Photo</Text>
-      </TouchableOpacity>
+      {/* Action Buttons */}
+      <View style={styles.actionRow}>
+        <TouchableOpacity
+          style={[styles.actionButton, { backgroundColor: '#1a73e8' }]}
+          onPress={() => handleImagePick(true)}
+          disabled={loading}
+        >
+          <Feather name="camera" size={24} color="#fff" />
+          <Text style={styles.actionText}>Take Photo</Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity
-        style={[styles.button, styles.predictButton, (!imageUri || loading) && { opacity: 0.6 }]}
-        onPress={handlePrediction}
-        disabled={!imageUri || loading}
-      >
-        {loading ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Analyze</Text>
-        )}
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, { backgroundColor: '#34a853' }]}
+          onPress={handlePrediction}
+          disabled={!imageUri || loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Feather name="search" size={24} color="#fff" />
+              <Text style={styles.actionText}>Analyze</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
 
       {!isOnline && (
-        <Text style={styles.warning}>You're offline. Prediction requires internet.</Text>
+        <Text style={styles.offlineText}>You're offline. Internet is required for predictions.</Text>
       )}
 
       <TouchableOpacity onPress={() => navigation.navigate('Symptoms')}>
-        <Text style={styles.link}>Check Symptoms Instead</Text>
+        <Text style={styles.symptomText}>Check Symptoms Instead</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-    justifyContent: 'center',
-    backgroundColor: '#f8f9fa',
-  },
-  imageBox: {
-    height: 300,
-    borderRadius: 15,
-    backgroundColor: '#e0e0e0',
-    justifyContent: 'center',
+  container: { flex: 1, padding: 20, backgroundColor: '#f1f5f9', justifyContent: 'center' },
+  imageContainer: {
     alignItems: 'center',
-    marginBottom: 20,
-    borderWidth: 2,
+    justifyContent: 'center',
+    height: 240,
+    borderRadius: 20,
+    backgroundColor: '#e2e8f0',
     borderStyle: 'dashed',
-    borderColor: '#ccc',
+    borderColor: '#94a3b8',
+    borderWidth: 2,
+    marginBottom: 24,
   },
   image: {
     width: '100%',
     height: '100%',
-    borderRadius: 15,
+    borderRadius: 18,
   },
   placeholderText: {
-    color: '#888',
-    fontSize: 16,
-    textAlign: 'center',
-    paddingHorizontal: 20,
-  },
-  button: {
-    backgroundColor: '#3498db',
-    padding: 15,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  predictButton: {
-    backgroundColor: '#2ecc71',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  link: {
-    textAlign: 'center',
-    marginTop: 20,
-    color: '#1e88e5',
-    fontSize: 15,
-    textDecorationLine: 'underline',
-  },
-  warning: {
-    color: '#d9534f',
-    textAlign: 'center',
-    marginTop: 10,
+    color: '#64748b',
     fontSize: 14,
+    marginTop: 8,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 20,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 14,
+    elevation: 2,
+  },
+  actionText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  symptomText: {
+    marginTop: 20,
+    textAlign: 'center',
+    color: '#1a73e8',
+    textDecorationLine: 'underline',
+    fontWeight: '500',
+  },
+  offlineText: {
+    textAlign: 'center',
+    color: '#dc2626',
+    marginBottom: 10,
   },
 });
